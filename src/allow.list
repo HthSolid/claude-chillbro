@@ -150,6 +150,21 @@
 ^false(\s|$)
 ^test\s
 ^\[\s
+^cd\s
+^cd$
+^pushd\s
+^popd(\s|$)
+
+# --- Node syntax-check / build verification (read-only) ---
+^node\s+--check\s
+^node\s+-c\s
+^npx\s+tsc(\s|$)
+^npx\s+eslint(\s|$)
+^npx\s+prettier(\s|$)
+^npx\s+vitest(\s|$)
+^npx\s+jest(\s|$)
+^npx\s+esbuild\b[^|;&>]*--bundle=false
+^npx\s+esbuild\b[^|;&>]*--check
 
 # --- Docker read-only ---
 ^docker\s+(ps|images|logs|inspect|version|info|stats|diff|history|port|top)(\s|$)

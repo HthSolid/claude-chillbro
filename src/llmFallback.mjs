@@ -3,6 +3,7 @@
 // auth (OAuth/keychain), no API key required.
 //
 // On any failure (timeout, non-zero exit, parse error) → returns 'ask' (fail-safe).
+// Failures are logged to stderr so they show up in `claude --debug hooks`.
 
 import { spawnSync } from 'node:child_process';
 
@@ -23,7 +24,12 @@ const SCHEMA = JSON.stringify({
   additionalProperties: false,
 });
 
-const TIMEOUT_MS = 6000;
+const TIMEOUT_MS = 12000;
+const IS_WINDOWS = process.platform === 'win32';
+
+function logFailure(stage, detail) {
+  process.stderr.write(`[chillbro] llm classifier ${stage}: ${detail}\n`);
+}
 
 export function classifyWithLLM(command) {
   if (process.env.CHILLBRO_TEST_NO_LLM === '1') {
@@ -32,6 +38,9 @@ export function classifyWithLLM(command) {
 
   const prompt = `Classify this command:\n\n${command}`;
 
+  // Windows ships `claude` as `claude.cmd`. Node's spawnSync without
+  // shell:true does not always resolve PATHEXT, so spawn fails with ENOENT.
+  // Using shell:true on Windows lets cmd.exe handle the resolution.
   const result = spawnSync('claude', [
     '-p',
     '--model', 'haiku',
@@ -46,10 +55,26 @@ export function classifyWithLLM(command) {
     timeout: TIMEOUT_MS,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
+    shell: IS_WINDOWS,
+    windowsHide: true,
   });
 
-  if (result.error || result.status !== 0 || !result.stdout) {
-    return { verdict: 'ask', reason: 'classifier unavailable' };
+  if (result.error) {
+    logFailure('spawn-error', result.error.message || String(result.error));
+    return { verdict: 'ask', reason: `classifier spawn failed: ${result.error.code || 'unknown'}` };
+  }
+  if (result.signal) {
+    logFailure('signal', `terminated by ${result.signal}`);
+    return { verdict: 'ask', reason: `classifier timed out` };
+  }
+  if (result.status !== 0) {
+    const stderr = (result.stderr || '').toString().trim().slice(0, 500);
+    logFailure('exit-nonzero', `status=${result.status} stderr=${stderr || '(empty)'}`);
+    return { verdict: 'ask', reason: `classifier exit ${result.status}` };
+  }
+  if (!result.stdout) {
+    logFailure('empty-stdout', 'claude -p returned no stdout');
+    return { verdict: 'ask', reason: 'classifier empty output' };
   }
 
   try {
@@ -57,7 +82,8 @@ export function classifyWithLLM(command) {
     const inner = typeof env.result === 'string' ? JSON.parse(env.result) : env.result;
     if (inner?.verdict === 'SAFE') return { verdict: 'allow', reason: inner.reason || 'classified safe' };
     return { verdict: 'ask', reason: inner?.reason || 'classified risky' };
-  } catch {
+  } catch (e) {
+    logFailure('parse-error', `${e.message} stdout=${result.stdout.slice(0, 300)}`);
     return { verdict: 'ask', reason: 'classifier parse error' };
   }
 }

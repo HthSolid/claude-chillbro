@@ -39,6 +39,13 @@ const cases = [
   ['kill -9 12345',                           'ask',   'kill -9 asked'],
   ['sed -i s/foo/bar/ file',                  'ask',   'sed -i asked'],
   ['sed s/foo/bar/ file',                     'allow', 'sed without -i is safe'],
+
+  // 0.1.1 additions: cd + node --check + npx tooling are unambiguously safe
+  ['cd /some/dir',                            'allow', 'cd is safe'],
+  ['node --check src/main.js',                'allow', 'node --check is safe'],
+  ['npx tsc --noEmit',                        'allow', 'npx tsc is safe'],
+  ['npx eslint src/',                         'allow', 'npx eslint is safe'],
+  ['cd /tmp && node --check foo.js && echo OK', 'allow', 'real-world compound chain is safe'],
 ];
 
 let pass = 0, fail = 0;

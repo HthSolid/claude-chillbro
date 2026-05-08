@@ -7,3 +7,6 @@ node_modules/
 .vscode/
 coverage/
 dist/
+.claude-flow/
+.claude/
+.windsurf/

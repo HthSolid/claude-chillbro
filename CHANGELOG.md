@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 — 2026-05-08
+
+- **Fix**: LLM fallback failed silently on Windows because `spawnSync('claude', ...)` could not resolve `claude.cmd` without `shell: true`. Now uses `shell: true` on Windows, increases the timeout to 12s, and logs spawn/exit/parse failures to stderr so they surface in `claude --debug hooks`.
+- **Add**: `cd`, `pushd`, `popd`, `node --check`, `node -c`, `npx tsc`, `npx eslint`, `npx prettier`, `npx vitest`, `npx jest`, and read-only `npx esbuild` invocations to the static allow list. These were previously falling through to the LLM (or, on Windows, all the way to ask) for no reason — they are unambiguously safe.
+
 ## 0.1.0 — 2026-05-08
 
 Initial release.
