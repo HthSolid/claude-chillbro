@@ -1,0 +1,172 @@
+# claude-chillbro :: ALLOW list
+# JavaScript regexes, one per line. # = comment. Empty lines ignored.
+# Matched against each segment of a compound command (after splitting on && || ; |).
+# ASK list is checked FIRST — if any segment matches ask, the whole command is asked.
+# So you can safely write broad allow patterns here; the narrow ask patterns override.
+
+# --- File inspection (read-only) ---
+^ls(\s|$)
+^ll(\s|$)
+^la(\s|$)
+^cat\s
+^head(\s|$)
+^tail(\s|$)
+^less(\s|$)
+^more(\s|$)
+^wc(\s|$)
+^file\s
+^stat\s
+^tree(\s|$)
+^pwd(\s|$)
+^realpath\s
+^readlink\s
+^du(\s|$)
+^df(\s|$)
+^basename\s
+^dirname\s
+
+# --- Search / read-only text manipulation ---
+^grep(\s|$)
+^egrep(\s|$)
+^fgrep(\s|$)
+^rg(\s|$)
+^ag(\s|$)
+^ack(\s|$)
+^find(\s|$)
+^locate(\s|$)
+^which(\s|$)
+^whereis(\s|$)
+^type\s
+^command\s+-v\s
+^sort(\s|$)
+^uniq(\s|$)
+^cut(\s|$)
+^tr(\s|$)
+^paste(\s|$)
+^join(\s|$)
+^diff(\s|$)
+^comm(\s|$)
+^cmp(\s|$)
+^sed\s
+^awk\s
+^jq(\s|$)
+
+# --- Git read-only ---
+^git\s+status(\s|$)
+^git\s+log(\s|$)
+^git\s+diff(\s|$)
+^git\s+show(\s|$)
+^git\s+blame(\s|$)
+^git\s+branch(\s|$)
+^git\s+remote(\s|$)
+^git\s+config\s+(--get|--list|-l)
+^git\s+ls-files(\s|$)
+^git\s+ls-tree(\s|$)
+^git\s+rev-parse(\s|$)
+^git\s+rev-list(\s|$)
+^git\s+reflog(\s|$)
+^git\s+stash\s+(list|show)
+^git\s+describe(\s|$)
+^git\s+tag(\s|$)
+^git\s+fetch(\s|$)
+^git\s+merge-base(\s|$)
+^git\s+grep(\s|$)
+^git\s+show-ref(\s|$)
+^git\s+symbolic-ref(\s|$)
+^git\s+for-each-ref(\s|$)
+^git\s+--version
+^git\s+help
+
+# --- Package managers (read-only) ---
+^npm\s+(list|ls|view|search|outdated|info|root|prefix|config\s+get)
+^npm\s+--version
+^pnpm\s+(list|ls|why|outdated|info|root)
+^pnpm\s+--version
+^yarn\s+(list|why|info)
+^yarn\s+--version
+^pip\s+(list|show|freeze|index)
+^pip3?\s+--version
+^cargo\s+(tree|metadata|version|search|locate-project)
+^cargo\s+--version
+^go\s+(list|version|env|doc)
+^bundle\s+(list|info|show)
+
+# --- Package managers (install — local only; ASK list catches -g/--global) ---
+^npm\s+(i|install|ci)(\s|$)
+^pnpm\s+(i|install|add)(\s|$)
+^yarn\s+(install|add)(\s|$)
+^pip\s+install(\s|$)
+^pip3\s+install(\s|$)
+
+# --- Build / test / lint / typecheck (no deploy) ---
+^npm\s+(test|t|run)(\s|$)
+^pnpm\s+(test|t|lint|build|typecheck|check|run|dev|start)(\s|$)
+^yarn\s+(test|lint|build|typecheck|check|run|dev|start)(\s|$)
+^tsc(\s|$)
+^cargo\s+(build|check|test|clippy|fmt|doc|run|bench)(\s|$)
+^pytest(\s|$)
+^python\s+-m\s+pytest
+^python3?\s+-m\s+(unittest|mypy|black|ruff|pip)
+^go\s+(test|build|vet|fmt|run)(\s|$)
+^make(\s|$)
+^ruff(\s|$)
+^eslint(\s|$)
+^prettier(\s|$)
+^biome(\s|$)
+^vitest(\s|$)
+^jest(\s|$)
+^mypy(\s|$)
+^black(\s|$)
+^isort(\s|$)
+^cmake(\s|$)
+^ninja(\s|$)
+
+# --- Process / system info ---
+^ps(\s|$)
+^top\s+-n\s+1
+^htop(\s|$)
+^btop(\s|$)
+^uname(\s|$)
+^hostname(\s|$)
+^whoami(\s|$)
+^id(\s|$)
+^groups(\s|$)
+^env(\s|$)
+^printenv(\s|$)
+^date(\s|$)
+^uptime(\s|$)
+^cal(\s|$)
+^lscpu(\s|$)
+^lsmem(\s|$)
+^free(\s|$)
+^lsblk(\s|$)
+
+# --- Trivial / shell builtins ---
+^echo(\s|$)
+^printf\s
+^clear(\s|$)
+^reset(\s|$)
+^true(\s|$)
+^false(\s|$)
+^test\s
+^\[\s
+
+# --- Docker read-only ---
+^docker\s+(ps|images|logs|inspect|version|info|stats|diff|history|port|top)(\s|$)
+^docker\s+compose\s+(ps|logs|version|config|top)(\s|$)
+^docker\s+image\s+(ls|inspect|history)
+^docker\s+volume\s+(ls|inspect)
+^docker\s+network\s+(ls|inspect)
+
+# --- Network read-only ---
+^ping\s+-c
+^dig(\s|$)
+^nslookup(\s|$)
+^host\s
+^curl\s+--head
+^curl\s+-I(\s|$)
+^wget\s+--spider
+
+# --- Tool version / help wildcard ---
+\s--version(\s|$)
+\s--help(\s|$)

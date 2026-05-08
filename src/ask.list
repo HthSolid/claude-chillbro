@@ -1,0 +1,124 @@
+# claude-chillbro :: ASK list
+# Checked BEFORE allow.list — if any segment matches, the whole command is prompted.
+# This is the "definitely-not-safe" set: destructive, irreversible, sensitive, public-visible.
+
+# --- Filesystem destruction ---
+\brm\s+-rf?(\s|$)
+\brm\s+-fr(\s|$)
+\brm\s+--recursive
+\brm\s+--force
+\bfind\b[^|;&]*\s-delete\b
+\bfind\b[^|;&]*\s-exec\s+rm
+\bdd\s+if=
+\bmkfs\.
+\bfdisk(\s|$)
+\bparted(\s|$)
+\bchmod\s+-R
+\bchown\s+-R
+\bchmod\s+(0?7[0-7][0-7]|\+s)
+\bsed\s+-i\b
+\bawk\s+-i\b
+
+# --- Privilege escalation ---
+^sudo(\s|$)
+^su(\s|$)
+^doas(\s|$)
+
+# --- Git: history rewrites & destructive ops ---
+\bgit\s+push\s+(--force|-f)\b
+\bgit\s+push\s+--force-with-lease
+\bgit\s+push\s+--mirror
+\bgit\s+push\s+--delete
+\bgit\s+push\s+\S+\s+:[^\s]
+\bgit\s+reset\s+--hard
+\bgit\s+clean\s+-[fF]
+\bgit\s+filter-branch
+\bgit\s+filter-repo
+\bgit\s+branch\s+-D\b
+\bgit\s+branch\s+--delete\s+--force
+\bgit\s+branch\s+--delete\b
+\bgit\s+checkout\s+--\s
+\bgit\s+restore\s+--staged\s
+\bgit\s+commit\s+--amend
+\bgit\s+tag\s+-d\b
+\bgit\s+tag\s+--delete
+\bgit\s+rebase\s+-i\b
+\bgit\s+gc\s+--prune
+\bgit\s+update-ref\s+-d
+
+# --- Database destruction ---
+\bprisma\s+migrate\s+reset
+\b--accept-data-loss\b
+\bdrizzle-kit\s+push\b[^|;&]*--force
+\bDROP\s+(TABLE|DATABASE|SCHEMA)\b
+\bTRUNCATE\b
+\bredis-cli\b[^|;&]*\bFLUSH(DB|ALL)\b
+\bdb:drop\b
+\bdb:reset\b
+\bdb:wipe\b
+\bsequelize\s+db:drop
+\bmongo(sh)?\b[^|;&]*\.drop\(
+
+# --- Containers / orchestration / IaC ---
+\bdocker\s+rm\s+-f
+\bdocker\s+volume\s+(rm|prune)
+\bdocker\s+system\s+prune
+\bdocker\s+image\s+prune
+\bkubectl\s+delete\b
+\bkubectl\s+apply\b
+\bhelm\s+(uninstall|delete)\b
+\bterraform\s+destroy\b
+\bterraform\s+apply\b
+\bansible-playbook\b
+
+# --- Outbound mutations ---
+\bcurl\b[^|;&]*\s-X\s*(POST|PUT|DELETE|PATCH)
+\bcurl\b[^|;&]*--request\s*(POST|PUT|DELETE|PATCH)
+\bcurl\b[^|;&]*\s-d\s
+\bcurl\b[^|;&]*--data
+\bcurl\b[^|;&]*--data-(binary|raw|urlencode)
+\bwget\b[^|;&]*--post-
+\bnpm\s+publish\b
+\bpnpm\s+publish\b
+\byarn\s+publish\b
+\bcargo\s+publish\b
+\btwine\s+upload
+\bgh\s+release\s+(delete|edit)
+\bgh\s+repo\s+(delete|archive)
+\bgh\s+pr\s+(close|delete)
+\bgh\s+issue\s+(close|delete)
+^ssh(\s|$)
+^scp(\s|$)
+\brsync\b[^|;&]*\s\S+:
+
+# --- Secrets / credential files ---
+(^|\s|/)\.env(\s|$|/|\.)
+\b\.aws/credentials
+\b\.ssh/id_(rsa|ed25519|ecdsa|dsa)
+\bAWS_SECRET_ACCESS_KEY\b
+\bGITHUB_TOKEN\b\s*=
+
+# --- Process killing ---
+\bkill\s+-9\b
+\bkill\s+-SIGKILL
+\bkillall\b
+\bpkill\s+-9\b
+\bsystemctl\s+(stop|restart|disable|reset|mask)\b
+
+# --- Global installs (modifies user-wide state) ---
+\bnpm\s+(i|install)\b[^|;&]*\s-g\b
+\bnpm\s+(i|install)\b[^|;&]*--global
+\bpnpm\s+add\b[^|;&]*\s-g\b
+\bpnpm\s+add\b[^|;&]*--global
+\bcargo\s+install\b
+\bpip\s+install\b[^|;&]*--user
+
+# --- Shell injection / unbounded execution ---
+\beval\s
+\$\(curl
+\bcurl\b[^|;&]*\|\s*(bash|sh|zsh|fish)
+\bwget\b[^|;&]*\|\s*(bash|sh|zsh|fish)
+
+# --- Suspicious composites ---
+^\s*>\s*/dev/
+\bdd\s+of=
