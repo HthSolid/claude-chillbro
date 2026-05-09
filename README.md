@@ -10,13 +10,14 @@ You know the feeling. chillbro fixes it.
 
 ## What it does
 
-Five layers, in order:
+Six layers, in order:
 
 1. **Static asklist** (~75 patterns). Destructive operations like `rm -rf`, `sudo`, `git push --force`, `git reset --hard`, `prisma migrate reset`, `curl -X POST`, `kill -9`, anything touching `.env*` or `~/.ssh/id_*` always prompt you. Never auto-allowed.
 2. **Context-aware probes**. `git push` to `main`/`master` asks, push to feature branch allows. `gh pr|issue|release create|merge` asks on public repos, allows on private.
 3. **Inline interpreter scanner**. `python -c`, `node -e`, `perl -e`, `ruby -e`, `deno`, `bun` invocations have their inline code statically scanned for dangerous tokens. Clean code (pure data inspection, arithmetic, JSON parsing) auto-allows with no LLM call. Suspect code defers to the next layer.
-4. **Static allowlist** (~110 patterns). Read-only operations like `ls`, `cat`, `grep`, `rg`, `git status`, `git log`, `git diff`, `pnpm test`, `pnpm install`, `tsc --noEmit`, `cargo check`, `pytest` get auto-approved. No prompt, no delay.
-5. **LLM waterfall** for anything still unknown:
+4. **Learned auto-allow**. Commands you've manually approved twice (in their normalized form) get appended to `~/.claude-chillbro/learned-allow.txt` and auto-allowed thereafter. See [Self-learning](#self-learning) below.
+5. **Static allowlist** (~110 patterns). Read-only operations like `ls`, `cat`, `grep`, `rg`, `git status`, `git log`, `git diff`, `pnpm test`, `pnpm install`, `tsc --noEmit`, `cargo check`, `pytest` get auto-approved. No prompt, no delay.
+6. **LLM waterfall** for anything still unknown:
    - **Layer A**: direct Anthropic API call to Haiku 4.5 (~400-900ms). Active when `ANTHROPIC_API_KEY` is set.
    - **Layer B**: headless `claude -p --model haiku` (slow cold start, no key needed). Reuses your existing Claude Code authentication.
    - **Layer C**: defaults to `ask`. Always reachable.
@@ -82,8 +83,8 @@ Zero npm dependencies. The hook scripts hand-parse everything.
 
 The static lists live in:
 
-- `src/allow.list` — JavaScript regexes, one per line, `#` for comments.
-- `src/ask.list` — same format. Checked first; an ask-list match always wins over an allow-list match.
+- `src/allow.list`: JavaScript regexes, one per line, `#` for comments.
+- `src/ask.list`: same format. Checked first; an ask-list match always wins over an allow-list match.
 
 To extend either list, append a regex and restart Claude Code. To shadow a built-in pattern, add a narrower ask pattern that fires earlier.
 

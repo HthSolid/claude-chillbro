@@ -26,7 +26,7 @@ export function appendLearned(normalized) {
   if (existing.includes(normalized)) return false;
   const header = existsSync(LEARNED_FILE)
     ? ''
-    : '# claude-chillbro :: learned auto-allow patterns\n# Auto-added after 2 successful runs of the same normalized command.\n# Edit freely — one normalized form per line, # for comments.\n\n';
+    : '# claude-chillbro :: learned auto-allow patterns\n# Auto-added after 2 successful runs of the same normalized command.\n# Edit freely. One normalized form per line. # for comments.\n\n';
   writeFileSync(LEARNED_FILE, header + (existing.concat(normalized)).join('\n') + '\n');
   return true;
 }

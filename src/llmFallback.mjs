@@ -8,7 +8,18 @@
 // permission prompt.
 
 import { spawnSync } from 'node:child_process';
+import { mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { classifyWithAnthropic } from './llmAnthropic.mjs';
+
+// Empty plugin directory to pass to the nested `claude -p` invocation. Without
+// it, the inner Claude Code process discovers and loads ALL of the user's
+// installed plugins (including chillbro itself, which would recurse, plus
+// dejavu's session_start.py, etc.). With it, the inner process loads zero
+// plugins and starts in ~4s instead of 12-16s.
+const EMPTY_PLUGINS_DIR = join(tmpdir(), 'chillbro-empty-plugins');
+try { mkdirSync(EMPTY_PLUGINS_DIR, { recursive: true }); } catch { /* tolerable */ }
 
 const SYSTEM_PROMPT = `You classify shell commands by safety. Reply with ONE word only: SAFE or RISKY.
 
@@ -21,19 +32,13 @@ RISKY = destructive beyond the stated intent, OR intent missing and the
         command is destructive, OR ambiguous, OR the command does not
         match the stated intent.
 
-When in doubt: RISKY. The intent is the model's own one-line "why" — treat
+When in doubt: RISKY. The intent is the model's own one-line "why". Treat
 it as authoritative scope, not as truth (a command that exceeds the
 described scope is RISKY even if the intent claims otherwise).`;
 
-const SCHEMA = JSON.stringify({
-  type: 'object',
-  properties: {
-    verdict: { type: 'string', enum: ['SAFE', 'RISKY'] },
-    reason: { type: 'string' },
-  },
-  required: ['verdict'],
-  additionalProperties: false,
-});
+// Schema deliberately omitted: forcing structured output triggers a second
+// model turn (~+4s latency), and the prose parser below reliably extracts
+// SAFE/RISKY from a one-word reply.
 
 const CLAUDE_P_TIMEOUT_MS = 12000;
 
@@ -51,8 +56,14 @@ function classifyWithClaudeP(command, intent) {
     '--tools', '',
     '--no-session-persistence',
     '--disable-slash-commands',
+    // Isolation flags: skip plugin discovery (avoids recursion into chillbro
+    // itself + slow startup from other plugins like dejavu), skip MCP servers,
+    // skip CLAUDE.md / settings loading. Drops cold start from ~12-16s to ~4s.
+    '--plugin-dir', EMPTY_PLUGINS_DIR,
+    '--strict-mcp-config',
+    '--mcp-config', '{"mcpServers":{}}',
+    '--setting-sources', '',
     '--system-prompt', SYSTEM_PROMPT,
-    '--json-schema', SCHEMA,
     buildPrompt(command, intent),
   ];
 
@@ -81,10 +92,31 @@ function classifyWithClaudeP(command, intent) {
 
   try {
     const env = JSON.parse(result.stdout);
-    const inner = typeof env.result === 'string' ? JSON.parse(env.result) : env.result;
-    if (inner?.verdict === 'SAFE') return { verdict: 'allow', reason: `claude -p: ${inner.reason || 'safe'}` };
-    if (inner?.verdict === 'RISKY') return { verdict: 'ask', reason: `claude -p: ${inner.reason || 'risky'}` };
-    process.stderr.write(`[chillbro] claude -p: unrecognized verdict: ${JSON.stringify(inner).slice(0, 80)}\n`);
+
+    // Three valid response shapes from claude -p, in order of preference:
+    //   1. env.structured_output.verdict — set when --json-schema is satisfied
+    //      (the cleanest, most recent path)
+    //   2. env.result is itself JSON with {verdict} — older shape when schema
+    //      coercion put the JSON inside the result string
+    //   3. env.result is prose containing "SAFE" or "RISKY" — fallback when
+    //      schema enforcement isn't engaged or the model emitted prose
+    const verdictFromStructured = env.structured_output?.verdict;
+    if (verdictFromStructured === 'SAFE') return { verdict: 'allow', reason: 'claude -p: safe' };
+    if (verdictFromStructured === 'RISKY') return { verdict: 'ask', reason: 'claude -p: risky' };
+
+    if (typeof env.result === 'string') {
+      try {
+        const inner = JSON.parse(env.result);
+        if (inner?.verdict === 'SAFE') return { verdict: 'allow', reason: `claude -p: ${inner.reason || 'safe'}` };
+        if (inner?.verdict === 'RISKY') return { verdict: 'ask', reason: `claude -p: ${inner.reason || 'risky'}` };
+      } catch { /* result wasn't JSON, try prose match below */ }
+
+      const upper = env.result.toUpperCase();
+      if (/\bSAFE\b/.test(upper) && !/\bRISKY\b/.test(upper)) return { verdict: 'allow', reason: 'claude -p: safe (prose)' };
+      if (/\bRISKY\b/.test(upper)) return { verdict: 'ask', reason: 'claude -p: risky (prose)' };
+    }
+
+    process.stderr.write(`[chillbro] claude -p: unrecognized response shape: ${JSON.stringify(env).slice(0, 120)}\n`);
     return null;
   } catch (err) {
     process.stderr.write(`[chillbro] claude -p parse error: ${err.message}\n`);

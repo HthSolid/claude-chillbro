@@ -27,7 +27,9 @@ const LANG_DANGEROUS = [
   /\bex[e]c\s*\(/,
   /\bcompile\s*\(/,
   /\bopen\s*\([^,)]+,\s*['"][wxa]/,
-  /\b(?:f|file)\.write\s*\(/,
+  // Note: f.write(/file.write(/Path(...).unlink() etc. are all caught by the
+  // chain-depth-agnostic `\.(write|unlink|...)\(` pattern further down. No
+  // narrower variant needed.
   /\bPath\b[^.]{0,40}\.(write|unlink|mkdir|rmdir|chmod)/,
   /\bos\.(remove|unlink|rmdir|removedirs|chmod|chown|symlink|link|rename|replace|truncate|kill)/,
 

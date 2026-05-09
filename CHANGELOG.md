@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.3 — 2026-05-09
+
+Audit follow-ups + speed for the no-key path.
+
+- **Fix (critical)**: hook timeout in `hooks/hooks.json` was 8s but the `claude -p` subprocess timeout was 12s. Claude Code killed the hook before `claude -p` could return, making the no-key fallback layer effectively unreachable. Bumped hook timeout to 16s, giving the slow path the budget it needs.
+- **Speed**: added isolation flags to the `claude -p` invocation (`--plugin-dir <empty>`, `--strict-mcp-config --mcp-config '{"mcpServers":{}}'`, `--setting-sources ''`). Without isolation, the nested `claude` process discovers and loads ALL of the user's installed plugins (including chillbro itself, plus dejavu's session_start.py, etc.) at every classification. Cold start drops from 12-16s to **~4s**. No API key required. Cache is also working: ~25k tokens cache_read on the second call.
+- **Doc**: README "What it does" now correctly lists six layers (added the missing **learned auto-allow** layer between inline-interpreter and static allow).
+- **Cleanup**: removed em-dashes from the LLM SYSTEM prompts (`src/llmAnthropic.mjs`, `src/llmFallback.mjs`), the README, and the on-disk `~/.claude-chillbro/learned-allow.txt` header.
+- **Cleanup**: removed redundant `(?:f|file)\.write` regex in `src/inlineInterpreters.mjs` (now subsumed by the broader chain-depth-agnostic `\.(write|...)\(` pattern added in 0.1.2).
+
 ## 0.1.2 — 2026-05-09
 
 Speed and context overhaul.

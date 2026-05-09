@@ -1,6 +1,6 @@
 {
   "name": "claude-chillbro",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Auto-approves obviously-safe Bash commands so Claude Code stops asking permission for every grep, cat, and ls. Static allowlist (read-only ops), static asklist (destructive ops), self-learning (commands you've approved twice get auto-approved next time), and a headless 'claude -p' classifier as a last-resort fallback for unknown commands.",
   "author": {
     "name": "HTE Switzerland"
