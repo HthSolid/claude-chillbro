@@ -24,13 +24,16 @@ function emit(decision, reason) {
   }));
 }
 
-function dispatch(evt) {
+async function dispatch(evt) {
   const cwd = evt.cwd || process.cwd();
   switch (evt.tool_name) {
     case 'Bash': {
       const cmd = evt.tool_input?.command;
       if (typeof cmd !== 'string' || !cmd.trim()) return null;
-      return classifyBash(cmd, cwd);
+      // The model's own one-line "why I'm running this." Used to scope-bound
+      // the LLM verdict for ambiguous commands. Optional and may be missing.
+      const intent = evt.tool_input?.description;
+      return await classifyBash(cmd, cwd, intent);
     }
     case 'Write':
     case 'Edit':
@@ -49,7 +52,7 @@ try {
   if (!raw.trim()) process.exit(0);
   const evt = JSON.parse(raw);
 
-  const result = dispatch(evt);
+  const result = await dispatch(evt);
   if (!result) process.exit(0);
 
   // Only emit when we want to short-circuit Claude Code's default flow.

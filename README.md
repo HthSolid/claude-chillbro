@@ -10,11 +10,18 @@ You know the feeling. chillbro fixes it.
 
 ## What it does
 
-Three layers, in order:
+Five layers, in order:
 
-1. **Static allowlist** (~110 patterns). Read-only operations like `ls`, `cat`, `grep`, `rg`, `git status`, `git log`, `git diff`, `pnpm test`, `pnpm install`, `tsc --noEmit`, `cargo check`, `pytest` get auto-approved. No prompt, no delay.
-2. **Static asklist** (~75 patterns). Destructive operations like `rm -rf`, `sudo`, `git push --force`, `git reset --hard`, `prisma migrate reset`, `curl -X POST`, `kill -9`, anything touching `.env*` or `~/.ssh/id_*` always prompt you. Never auto-allowed.
-3. **LLM fallback**. Anything not on either list gets classified by a one-shot `claude -p --model haiku` call (no API key required, uses your existing Claude Code authentication). Verdict is `SAFE` or `RISKY`; on timeout or parse failure, defaults to `RISKY` so you get the standard prompt.
+1. **Static asklist** (~75 patterns). Destructive operations like `rm -rf`, `sudo`, `git push --force`, `git reset --hard`, `prisma migrate reset`, `curl -X POST`, `kill -9`, anything touching `.env*` or `~/.ssh/id_*` always prompt you. Never auto-allowed.
+2. **Context-aware probes**. `git push` to `main`/`master` asks, push to feature branch allows. `gh pr|issue|release create|merge` asks on public repos, allows on private.
+3. **Inline interpreter scanner**. `python -c`, `node -e`, `perl -e`, `ruby -e`, `deno`, `bun` invocations have their inline code statically scanned for dangerous tokens. Clean code (pure data inspection, arithmetic, JSON parsing) auto-allows with no LLM call. Suspect code defers to the next layer.
+4. **Static allowlist** (~110 patterns). Read-only operations like `ls`, `cat`, `grep`, `rg`, `git status`, `git log`, `git diff`, `pnpm test`, `pnpm install`, `tsc --noEmit`, `cargo check`, `pytest` get auto-approved. No prompt, no delay.
+5. **LLM waterfall** for anything still unknown:
+   - **Layer A**: direct Anthropic API call to Haiku 4.5 (~400-900ms). Active when `ANTHROPIC_API_KEY` is set.
+   - **Layer B**: headless `claude -p --model haiku` (slow cold start, no key needed). Reuses your existing Claude Code authentication.
+   - **Layer C**: defaults to `ask`. Always reachable.
+
+The LLM also receives the model's `description` field as `intent`. A destructive command can classify SAFE if the intent describes an equivalent scope (e.g. `rm -rf <dir>` + intent "remove the now-empty old branch dir after move"). A command that exceeds the stated scope still classifies RISKY.
 
 For file writes: in-project paths auto-allow (creating new files is the whole point of asking the model to create new files). Out-of-cwd writes, `.env*`, `.aws/credentials`, `.ssh/id_*`, `secrets/`, and `credentials.{json,yml,toml,env}` always prompt.
 
@@ -80,9 +87,17 @@ The static lists live in:
 
 To extend either list, append a regex and restart Claude Code. To shadow a built-in pattern, add a narrower ask pattern that fires earlier.
 
+## Speed: set `ANTHROPIC_API_KEY`
+
+`claude -p` carries a 6-16s cold start (plugin discovery, MCP, hooks). Way too slow for a per-command classifier. If you set `ANTHROPIC_API_KEY` in your shell, chillbro skips `claude -p` and calls Haiku directly via HTTPS. Typical end-to-end is 400-900ms. Falls back to `claude -p` automatically when no key is set.
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+```
+
 ## Disabling the LLM fallback
 
-Set `CHILLBRO_TEST_NO_LLM=1` in your shell. Unknown commands then fall through to ask without invoking `claude -p`. Useful for offline work, testing, or if you want strictly deterministic behavior.
+Set `CHILLBRO_TEST_NO_LLM=1` in your shell. Unknown commands then fall through to ask without invoking any LLM (neither the Anthropic API nor `claude -p`). Useful for offline work, testing, or if you want strictly deterministic behavior.
 
 ## Limits
 
@@ -102,24 +117,28 @@ hooks/
 src/
   allow.list                   # ~110 regex patterns
   ask.list                     # ~75 regex patterns
-  classify.mjs                 # Bash classifier pipeline
+  classify.mjs                 # Bash classifier pipeline (sync + async)
   classifyWrite.mjs            # Write/Edit classifier
   splitter.mjs                 # quote-aware command splitter
   probes.mjs                   # git current branch + gh repo visibility
-  llmFallback.mjs              # claude -p subprocess wrapper
+  inlineInterpreters.mjs       # static safety scan for python -c, node -e, etc.
+  llmAnthropic.mjs             # direct Anthropic API call (sub-second)
+  llmFallback.mjs              # waterfall: api → claude -p → ask
   state.mjs                    # ~/.claude-chillbro/ state
   normalize.mjs                # placeholder substitution for learning
   lists.mjs                    # regex compilation
 test/
-  smoke.mjs                    # 25 Bash classifier cases
-  smoke-write.mjs              # 14 Write classifier cases
+  smoke.mjs                    # Bash classifier (36 cases)
+  smoke-write.mjs              # Write classifier (14 cases)
+  smoke-inline.mjs             # inline interpreter scanner (30 cases)
 ```
 
 ## Tests
 
 ```bash
-node test/smoke.mjs        # Bash classifier
-node test/smoke-write.mjs  # Write classifier
+CHILLBRO_TEST_NO_LLM=1 node test/smoke.mjs
+node test/smoke-write.mjs
+node test/smoke-inline.mjs
 ```
 
 ## License

@@ -3,7 +3,7 @@
 // and wasn't already on the static allow list, count it. After 2 successful runs
 // of the same normalized form, promote to learned-allow.
 
-import { classify } from '../src/classify.mjs';
+import { classifyStatic } from '../src/classify.mjs';
 import { normalize } from '../src/normalize.mjs';
 import { bumpCounter, appendLearned, loadLearned } from '../src/state.mjs';
 import { splitCommand } from '../src/splitter.mjs';
@@ -26,19 +26,18 @@ try {
   const cmd = evt.tool_input?.command;
   if (typeof cmd !== 'string' || !cmd.trim()) process.exit(0);
 
-  // Only learn from commands the user actually approved (not ones we already
-  // auto-allow via static lists — those don't need learning, and we'd just
-  // spam the counter file).
+  // Only learn commands that the static pipeline did NOT already classify.
+  // Static-allow and static-ask are deterministic — no need to learn them.
+  // We deliberately skip the LLM waterfall here (sync classifyStatic only) to
+  // keep PostToolUse fast; if the static layer doesn't know, the user must
+  // have approved manually for execution to have happened.
   const cwd = evt.cwd || process.cwd();
-  const { decision, source } = classify(cmd, cwd);
-  if (source === 'static-allow' || source === 'static-ask' || source === 'splitter') process.exit(0);
+  const { source } = classifyStatic(cmd, cwd);
+  if (source !== 'unknown') process.exit(0);
 
   // Only count if the command actually executed without error.
   const exitCode = evt.tool_response?.exit_code ?? evt.tool_response?.exitCode;
   if (exitCode !== undefined && exitCode !== 0) process.exit(0);
-
-  // Don't learn risky commands even if they succeeded.
-  if (decision !== 'allow') process.exit(0);
 
   // Per-segment learning (so a compound `cmd1 && cmd2` teaches both).
   const segs = splitCommand(cmd) || [cmd];

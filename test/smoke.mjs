@@ -46,15 +46,19 @@ const cases = [
   ['npx tsc --noEmit',                        'allow', 'npx tsc is safe'],
   ['npx eslint src/',                         'allow', 'npx eslint is safe'],
   ['cd /tmp && node --check foo.js && echo OK', 'allow', 'real-world compound chain is safe'],
+
+  // 0.1.2 additions: inline-interpreter scanner short-circuits the LLM
+  [`python3 -c "import json,sys; d=json.load(sys.stdin); print(d.keys())"`, 'allow', 'pure-python data inspection is safe'],
+  [`cargo metadata --format-version 1 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['packages']))"`, 'allow', 'cargo metadata + safe python pipe is safe'],
+  [`python3 -c "import os; os.system('id')"`, 'ask', 'os.system in inline python is asked'],
+  [`python3 -c "import subprocess; subprocess.run(['ls'])"`, 'ask', 'subprocess in inline python is asked'],
+  [`node -e "console.log(2+2)"`, 'allow', 'pure-node arithmetic is safe'],
+  [`node -e "require('child' + '_process').execSync('id')"`, 'ask', 'child_process in inline node is asked'],
 ];
 
 let pass = 0, fail = 0;
 for (const [cmd, expected, label] of cases) {
-  const { decision, source, reason } = classify(cmd, cwd);
-  // Treat 'allow' from llm as test failure when the test should be deterministic;
-  // since we set CHILLBRO_TEST_NO_LLM, llmFallback isn't gated by it (it would
-  // still try to spawn `claude`). To keep tests offline we accept 'ask' for any
-  // truly-unknown command.
+  const { decision, source, reason } = await classify(cmd, cwd);
   const ok = decision === expected;
   if (ok) { pass++; console.log(`  ok    ${label}  →  ${decision} [${source}]`); }
   else    { fail++; console.error(`  FAIL  ${label}  expected=${expected} got=${decision} [${source}] reason=${reason}`); console.error(`        cmd: ${cmd}`); }

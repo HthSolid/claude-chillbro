@@ -1,17 +1,24 @@
-// Top-level classifier. Given a full Bash command and cwd, returns:
-//   { decision: 'allow' | 'ask', reason: string, source: '...' }
+// Top-level Bash classifier. Given a full command, cwd, and (optional) intent
+// from the model, returns { decision, reason, source }.
 //
-// Pipeline:
-//   1. Split into segments (compound commands).
-//   2. For each segment: ASK list → LEARNED → ALLOW list → special-cases → unknown.
-//   3. If any segment is ASK → ASK.
-//   4. If any segment is UNKNOWN → LLM fallback over the full command.
-//   5. Else ALLOW.
+// Pipeline (per segment after compound-command split):
+//   1. ASK list — narrow destructive patterns win first.
+//   2. Special probes (git push branch, gh repo visibility).
+//   3. Inline interpreter scanner (python -c, node -e, etc.) — static safe-code check.
+//   4. Learned auto-allow (exact match on normalized form).
+//   5. ALLOW list.
+//   6. Otherwise → unknown.
+//
+// Aggregation:
+//   - Any segment ASK → ask.
+//   - All segments allow → allow.
+//   - Any segment unknown → escalate full command to LLM (Anthropic API → claude -p → ask).
 
 import { splitCommand } from './splitter.mjs';
 import { ALLOW, ASK, loadLearnedRegexes } from './lists.mjs';
 import { normalize } from './normalize.mjs';
 import { repoVisibility, gitPushTarget } from './probes.mjs';
+import { classifyInlineInterpreter } from './inlineInterpreters.mjs';
 import { classifyWithLLM } from './llmFallback.mjs';
 
 const RX = {
@@ -41,19 +48,35 @@ function classifySegment(seg, cwd, learned) {
     return { kind: 'ask', reason: 'unknown repo visibility' };
   }
 
-  // 3. Learned auto-allow (exact-match on normalized form).
-  const norm = normalize(seg);
-  if (learned.includes(norm)) return { kind: 'allow', reason: `learned: ${norm}` };
+  // 3. Inline interpreter scanner. If clean → allow. If suspect → leave for later layers.
+  const inline = classifyInlineInterpreter(seg);
+  if (inline?.kind === 'allow') return inline;
+  // 'unknown' from the inline scanner means: the segment IS an inline interpreter
+  // call but contains a dangerous token. Don't allow via the static list below
+  // even if some loose pattern matches; force escalation to LLM.
+  const inlineSuspect = inline?.kind === 'unknown';
 
-  // 4. ALLOW list.
-  for (const re of ALLOW) {
-    if (re.test(seg)) return { kind: 'allow', reason: `matched: ${re.source}` };
+  // 4. Learned auto-allow (exact match on normalized form).
+  const norm = normalize(seg);
+  if (!inlineSuspect && learned.includes(norm)) {
+    return { kind: 'allow', reason: `learned: ${norm}` };
   }
 
-  return { kind: 'unknown' };
+  // 5. ALLOW list.
+  if (!inlineSuspect) {
+    for (const re of ALLOW) {
+      if (re.test(seg)) return { kind: 'allow', reason: `matched: ${re.source}` };
+    }
+  }
+
+  return { kind: 'unknown', reason: inlineSuspect ? inline.reason : undefined };
 }
 
-export function classify(command, cwd) {
+// Static-only classification (synchronous, no network/subprocess). Returns one of:
+//   { decision: 'ask'|'allow', reason, source: 'static-ask'|'static-allow'|'splitter' }
+//   { decision: null,          reason,           source: 'unknown' }
+// Callers that need the LLM waterfall use classify() instead.
+export function classifyStatic(command, cwd) {
   const segs = splitCommand(command);
   if (segs === null) {
     return { decision: 'ask', reason: 'complex shell construct (subshell/substitution/unbalanced)', source: 'splitter' };
@@ -71,10 +94,21 @@ export function classify(command, cwd) {
 
   const unknowns = verdicts.filter(v => v.kind === 'unknown');
   if (unknowns.length === 0) {
-    return { decision: 'allow', reason: verdicts.map(v => v.reason).join(' | '), source: 'static-allow' };
+    return { decision: 'allow', reason: verdicts.map(v => v.reason).filter(Boolean).join(' | '), source: 'static-allow' };
   }
 
-  // 5. LLM fallback on the full original command (gives it more context than just the segment).
-  const llm = classifyWithLLM(command);
+  return {
+    decision: null,
+    reason: unknowns.map(u => u.reason).filter(Boolean).join(' | ') || 'no static match',
+    source: 'unknown',
+  };
+}
+
+// Full pipeline: static classification, then LLM waterfall for unknowns.
+export async function classify(command, cwd, intent) {
+  const stat = classifyStatic(command, cwd);
+  if (stat.source !== 'unknown') return stat;
+
+  const llm = await classifyWithLLM(command, intent);
   return { decision: llm.verdict, reason: llm.reason, source: 'llm' };
 }

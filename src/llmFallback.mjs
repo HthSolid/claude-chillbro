@@ -1,18 +1,29 @@
-// Last-resort classifier: spawn `claude -p` to decide on commands that didn't
-// match the static lists or learned state. Uses the user's existing Claude Code
-// auth (OAuth/keychain), no API key required.
+// LLM classifier with a fail-safe waterfall:
+//   1. Direct Anthropic API     (sub-second, requires ANTHROPIC_API_KEY)
+//   2. Headless `claude -p`     (slow cold-start, no key required)
+//   3. Default to 'ask'         (always reachable)
 //
-// On any failure (timeout, non-zero exit, parse error) → returns 'ask' (fail-safe).
-// Failures are logged to stderr so they show up in `claude --debug hooks`.
+// Each layer returns null on any failure so the caller falls through. Nothing
+// here can ever block the user; the worst-case is that they get the standard
+// permission prompt.
 
 import { spawnSync } from 'node:child_process';
+import { classifyWithAnthropic } from './llmAnthropic.mjs';
 
-const SYSTEM_PROMPT = `You classify shell commands by safety. Reply with ONE word only.
+const SYSTEM_PROMPT = `You classify shell commands by safety. Reply with ONE word only: SAFE or RISKY.
 
-SAFE = read-only, no filesystem writes outside cwd, no network mutations, no privilege escalation, fully reversible, no secrets accessed.
-RISKY = anything destructive, irreversible, network-mutating, privilege-elevating, secret-touching, OR ambiguous.
+SAFE = read-only, no filesystem writes outside cwd, no network mutations,
+       no privilege escalation, no secrets accessed, fully reversible.
+       OR destructive but bounded by the stated INTENT (e.g. intent
+       "remove the now-empty old branch dir after move" + "rm -rf <dir>"
+       is SAFE).
+RISKY = destructive beyond the stated intent, OR intent missing and the
+        command is destructive, OR ambiguous, OR the command does not
+        match the stated intent.
 
-When in doubt: RISKY.`;
+When in doubt: RISKY. The intent is the model's own one-line "why" — treat
+it as authoritative scope, not as truth (a command that exceeds the
+described scope is RISKY even if the intent claims otherwise).`;
 
 const SCHEMA = JSON.stringify({
   type: 'object',
@@ -24,24 +35,16 @@ const SCHEMA = JSON.stringify({
   additionalProperties: false,
 });
 
-const TIMEOUT_MS = 12000;
-const IS_WINDOWS = process.platform === 'win32';
+const CLAUDE_P_TIMEOUT_MS = 12000;
 
-function logFailure(stage, detail) {
-  process.stderr.write(`[chillbro] llm classifier ${stage}: ${detail}\n`);
+function buildPrompt(command, intent) {
+  const i = (intent && String(intent).trim()) || '(none provided)';
+  return `Command: ${command}\n\nIntent: ${i}\n\nClassify:`;
 }
 
-export function classifyWithLLM(command) {
-  if (process.env.CHILLBRO_TEST_NO_LLM === '1') {
-    return { verdict: 'ask', reason: 'llm disabled (test mode)' };
-  }
-
-  const prompt = `Classify this command:\n\n${command}`;
-
-  // Windows ships `claude` as `claude.cmd`. Node's spawnSync without
-  // shell:true does not always resolve PATHEXT, so spawn fails with ENOENT.
-  // Using shell:true on Windows lets cmd.exe handle the resolution.
-  const result = spawnSync('claude', [
+function classifyWithClaudeP(command, intent) {
+  const isWindows = process.platform === 'win32';
+  const args = [
     '-p',
     '--model', 'haiku',
     '--output-format', 'json',
@@ -50,40 +53,62 @@ export function classifyWithLLM(command) {
     '--disable-slash-commands',
     '--system-prompt', SYSTEM_PROMPT,
     '--json-schema', SCHEMA,
-    prompt,
-  ], {
-    timeout: TIMEOUT_MS,
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    shell: IS_WINDOWS,
-    windowsHide: true,
-  });
+    buildPrompt(command, intent),
+  ];
+
+  let result;
+  try {
+    result = spawnSync('claude', args, {
+      timeout: CLAUDE_P_TIMEOUT_MS,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: isWindows,
+    });
+  } catch (err) {
+    process.stderr.write(`[chillbro] claude -p spawn-throw: ${err.message}\n`);
+    return null;
+  }
 
   if (result.error) {
-    logFailure('spawn-error', result.error.message || String(result.error));
-    return { verdict: 'ask', reason: `classifier spawn failed: ${result.error.code || 'unknown'}` };
-  }
-  if (result.signal) {
-    logFailure('signal', `terminated by ${result.signal}`);
-    return { verdict: 'ask', reason: `classifier timed out` };
+    process.stderr.write(`[chillbro] claude -p spawn-error: ${result.error.message}\n`);
+    return null;
   }
   if (result.status !== 0) {
-    const stderr = (result.stderr || '').toString().trim().slice(0, 500);
-    logFailure('exit-nonzero', `status=${result.status} stderr=${stderr || '(empty)'}`);
-    return { verdict: 'ask', reason: `classifier exit ${result.status}` };
+    process.stderr.write(`[chillbro] claude -p exit ${result.status}: ${(result.stderr || '').slice(0, 200)}\n`);
+    return null;
   }
-  if (!result.stdout) {
-    logFailure('empty-stdout', 'claude -p returned no stdout');
-    return { verdict: 'ask', reason: 'classifier empty output' };
-  }
+  if (!result.stdout) return null;
 
   try {
     const env = JSON.parse(result.stdout);
     const inner = typeof env.result === 'string' ? JSON.parse(env.result) : env.result;
-    if (inner?.verdict === 'SAFE') return { verdict: 'allow', reason: inner.reason || 'classified safe' };
-    return { verdict: 'ask', reason: inner?.reason || 'classified risky' };
-  } catch (e) {
-    logFailure('parse-error', `${e.message} stdout=${result.stdout.slice(0, 300)}`);
-    return { verdict: 'ask', reason: 'classifier parse error' };
+    if (inner?.verdict === 'SAFE') return { verdict: 'allow', reason: `claude -p: ${inner.reason || 'safe'}` };
+    if (inner?.verdict === 'RISKY') return { verdict: 'ask', reason: `claude -p: ${inner.reason || 'risky'}` };
+    process.stderr.write(`[chillbro] claude -p: unrecognized verdict: ${JSON.stringify(inner).slice(0, 80)}\n`);
+    return null;
+  } catch (err) {
+    process.stderr.write(`[chillbro] claude -p parse error: ${err.message}\n`);
+    return null;
   }
+}
+
+export async function classifyWithLLM(command, intent) {
+  if (process.env.CHILLBRO_TEST_NO_LLM === '1') {
+    return { verdict: 'ask', reason: 'llm disabled (test mode)' };
+  }
+
+  // Layer 1: direct Anthropic API (sub-second when key is set).
+  try {
+    const apiResult = await classifyWithAnthropic(command, intent);
+    if (apiResult) return apiResult;
+  } catch (err) {
+    process.stderr.write(`[chillbro] anthropic layer threw: ${err.message}\n`);
+  }
+
+  // Layer 2: claude -p (always available, slow).
+  const cliResult = classifyWithClaudeP(command, intent);
+  if (cliResult) return cliResult;
+
+  // Layer 3: fail-safe to ask.
+  return { verdict: 'ask', reason: 'all classifiers unavailable; defaulting to ask' };
 }
