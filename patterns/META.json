@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "patterns_version": "1.0.0",
+  "updated": "2026-05-18",
+  "description": "claude-chillbro pattern catalog. Allow patterns auto-approve commands; ask patterns force the user prompt. Ask wins over allow if both match.",
+  "precedence": [
+    "1. patterns/ask.list  (ASK list, never auto-allowed)",
+    "2. user-ask.list      (user override, ~/.claude-chillbro/user-ask.list)",
+    "3. patterns/allow.list (ALLOW list)",
+    "4. user-allow.list    (user override, ~/.claude-chillbro/user-allow.list)"
+  ],
+  "categories_in_allow": [
+    "file inspection (read-only)",
+    "search (grep / rg / find without -delete)",
+    "git read-only",
+    "package managers (read / install local / build / test / lint)",
+    "build/test/lint tools (tsc / cargo / pytest / etc.)",
+    "process and system info",
+    "tool versions",
+    "trivial / shell builtins",
+    "shell env toggles (export / set / etc.)",
+    "filesystem create (mkdir / touch / ln -s)",
+    "job control (jobs / wait / disown / etc.)",
+    "documentation (man / help / etc.)",
+    "compressed-file inspection (zcat / unzip -l / etc.)",
+    "archive listing (tar -tf / tar --list)",
+    "clipboard read",
+    "hex / binary inspection",
+    "sourcing well-known shell init files",
+    "gh read-only subcommands",
+    "psql read-only invocations",
+    "docker read-only",
+    "network read-only"
+  ],
+  "categories_in_ask": [
+    "filesystem destruction (rm / find -delete / chmod -R / etc.)",
+    "privilege escalation (sudo / su / doas)",
+    "git history rewrites and destructive ops",
+    "database destruction (DROP / TRUNCATE / migrate reset / etc.)",
+    "containers / orchestration / IaC destruction",
+    "outbound mutations (curl POST / gh pr merge / publish / ssh / etc.)",
+    "secrets / credential files",
+    "process killing",
+    "global installs",
+    "shell injection / unbounded execution",
+    "suspicious composites"
+  ]
+}

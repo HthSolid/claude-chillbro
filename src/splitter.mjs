@@ -1,12 +1,21 @@
 // Split a shell command into independently-classifiable segments.
 // Respects single quotes, double quotes, and backslash escapes.
-// Bails (returns null) on command substitution ($(...) / `...`) or unbalanced quotes —
-// those are too tricky to classify safely; the caller should treat them as ASK.
+//
+// Two failure modes, surfaced distinctly via splitCommandWithReason():
+//   - 'subshell'   : command substitution ($(...) / `...`). The LLM can
+//                    reason about the whole command including the subshell
+//                    body, so the caller should pass these through to the
+//                    LLM fallback rather than auto-asking.
+//   - 'unbalanced' : quotes never closed. Almost always user typo —
+//                    deterministic ASK is the right call.
+//
+// splitCommand() is the legacy null-or-array API kept for callers that
+// only need success/fail (e.g. posttool's counter bumper).
 
 const SEPARATORS = ['&&', '||', ';', '|'];
 
-export function splitCommand(cmd) {
-  if (typeof cmd !== 'string') return null;
+export function splitCommandWithReason(cmd) {
+  if (typeof cmd !== 'string') return { bail: 'unbalanced' };
 
   const segments = [];
   let buf = '';
@@ -29,8 +38,9 @@ export function splitCommand(cmd) {
     if (!inSingle && c === '"') { inDouble = !inDouble; buf += c; i++; continue; }
 
     if (!inSingle && !inDouble) {
-      // Bail on command substitution — too risky to classify piece-by-piece.
-      if (c2 === '$(' || c === '`') return null;
+      // Subshell substitution — can't split safely. Bail with reason so the
+      // caller can decide to pass to LLM instead of deterministic ASK.
+      if (c2 === '$(' || c === '`') return { bail: 'subshell' };
 
       if (c === '(') { parenDepth++; buf += c; i++; continue; }
       if (c === ')') { parenDepth--; buf += c; i++; continue; }
@@ -55,7 +65,12 @@ export function splitCommand(cmd) {
     i++;
   }
 
-  if (inSingle || inDouble) return null; // unbalanced
+  if (inSingle || inDouble) return { bail: 'unbalanced' };
   if (buf.trim()) segments.push(buf.trim());
-  return segments;
+  return { segments };
+}
+
+export function splitCommand(cmd) {
+  const r = splitCommandWithReason(cmd);
+  return r.segments ?? null;
 }

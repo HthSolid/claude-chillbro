@@ -1,9 +1,9 @@
 {
-  "description": "claude-chillbro hooks: classify Bash tool invocations as allow/ask, learn from approvals.",
+  "description": "claude-chillbro hooks: classify Bash + Write/Edit + Read + MCP tool invocations as allow/ask, learn from approvals.",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit",
+        "matcher": "Bash|Write|Edit|MultiEdit|NotebookEdit|Read|mcp__.*",
         "hooks": [
           {
             "type": "command",
@@ -21,6 +21,18 @@
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/posttool.mjs\"",
             "timeout": 3
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/stop.mjs\"",
+            "timeout": 25
           }
         ]
       }

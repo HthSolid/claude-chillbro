@@ -74,6 +74,11 @@ function classifyWithClaudeP(command, intent) {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: isWindows,
+      // Recursion guard: the nested `claude -p` invocation will load Claude
+      // Code's hook system, which would re-trigger chillbro on every Bash
+      // tool call inside it. The guard env var causes the inner pretool/
+      // posttool to no-op immediately, breaking the loop.
+      env: { ...process.env, CHILLBRO_RECURSION_GUARD: '1' },
     });
   } catch (err) {
     process.stderr.write(`[chillbro] claude -p spawn-throw: ${err.message}\n`);
